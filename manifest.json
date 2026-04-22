@@ -1,0 +1,17 @@
+{
+  "name": "SubTracker",
+  "short_name": "SubTracker",
+  "description": "Track subscriptions & get bill reminders",
+  "start_url": "/subscription-tracker/",
+  "scope": "/subscription-tracker/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#3b82f6",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/1827/1827333.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
