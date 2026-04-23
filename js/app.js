@@ -8,15 +8,77 @@ const firebaseConfig = {
     appId: "1:765974058769:web:143080d8088fa3244f5eb0"
 };
 
-// ==================== FIREBASE CLOUD MESSAGING ====================
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const auth = firebase.auth();
 
+console.log("App starting...");
+
+// Global variables
+let subscriptions = [];
+let settings = { defaultCurrency: 'USD' };
+let currentFilter = 'all';
+let currentSort = 'name';
+let sortAscending = true;
+let editingId = null;
+let exchangeRates = {};
+let currentUser = null;
 let messaging = null;
 let fcmToken = null;
 let notificationPermission = false;
 
-// Initialize FCM
+// Currency symbols
+const symbols = { 
+    USD: '$', KES: 'KSh', EUR: '€', GBP: '£',
+    NGN: '₦', ZAR: 'R', INR: '₹', CAD: 'C$',
+    AUD: 'A$', JPY: '¥'
+};
+
+// Category colors
+const categoryColors = {
+    entertainment: '#e94560', music: '#48dbfb', productivity: '#2ecc71',
+    cloud: '#FF9A86', fitness: '#a29bfe', gaming: '#FFF0BE',
+    education: '#f39c12', news: '#B6F500', shopping: '#e94560',
+    food: '#48dbfb', vpn: '#2ecc71', other: '#a29bfe'
+};
+
+// ==================== AUTHENTICATION (PRIVACY FIX) ====================
+
+async function initAuth() {
+    console.log("Initializing authentication...");
+    
+    let userId = localStorage.getItem('userId');
+    
+    if (userId) {
+        currentUser = userId;
+        console.log("Existing user detected:", currentUser);
+        await loadSubscriptions();
+        return;
+    }
+    
+    try {
+        const userCredential = await auth.signInAnonymously();
+        currentUser = userCredential.user.uid;
+        localStorage.setItem('userId', currentUser);
+        console.log("New anonymous user created:", currentUser);
+        await loadSubscriptions();
+    } catch (error) {
+        console.error("Auth error:", error);
+        currentUser = 'fallback_' + Date.now();
+        localStorage.setItem('userId', currentUser);
+        await loadSubscriptions();
+    }
+}
+
+function getCurrencySymbol(currency) {
+    if (currency && symbols[currency]) return symbols[currency];
+    return symbols[settings.defaultCurrency] || '$';
+}
+
+// ==================== FIREBASE CLOUD MESSAGING ====================
+
 async function initFCM() {
-    // Check if FCM is supported
     if (!firebase.messaging) {
         console.log("FCM not supported");
         return false;
@@ -25,28 +87,21 @@ async function initFCM() {
     try {
         messaging = firebase.messaging();
         
-        // Request permission
         const permission = await Notification.requestPermission();
         if (permission !== 'granted') {
             console.log("Notification permission denied");
             return false;
         }
         
-        // Get FCM token
         const vapidKey = 'BGeqRVK-623afQv9trzUtnt72YMLJfbGXgWFbxfj7YqPWrfg92eiKmO9WQQt1PEsc4k3itY5kkImHBsQpXtLoec';
         
-        fcmToken = await messaging.getToken({
-            vapidKey: vapidKey
-        });
+        fcmToken = await messaging.getToken({ vapidKey: vapidKey });
         
         if (fcmToken) {
             console.log("FCM Token:", fcmToken);
             notificationPermission = true;
-            
-            // Save token to Firestore
             await saveFCMToken(fcmToken);
             
-            // Listen for foreground messages
             messaging.onMessage((payload) => {
                 console.log("Foreground message:", payload);
                 showNotificationFromFCM(payload);
@@ -63,11 +118,11 @@ async function initFCM() {
     }
 }
 
-// Save FCM token to Firestore
 async function saveFCMToken(token) {
     try {
         await db.collection('fcm_tokens').doc(token).set({
             token: token,
+            userId: currentUser,
             createdAt: new Date().toISOString(),
             userAgent: navigator.userAgent
         });
@@ -76,7 +131,6 @@ async function saveFCMToken(token) {
     }
 }
 
-// Show notification from FCM (foreground)
 function showNotificationFromFCM(payload) {
     const title = payload.notification?.title || 'Subscription Reminder';
     const body = payload.notification?.body || '';
@@ -86,7 +140,7 @@ function showNotificationFromFCM(payload) {
     const icon = toast?.querySelector('i');
     
     if (toast && toastMessage) {
-        toastMessage.textContent = `🔔 ${body}`;
+        toastMessage.textContent = `${body}`;
         if (icon) icon.className = 'fa-solid fa-bell';
         toast.style.background = '#3b82f6';
         toast.classList.remove('hidden');
@@ -102,7 +156,6 @@ function showNotificationFromFCM(payload) {
     }
 }
 
-// Check for upcoming bills and send FCM notifications
 async function checkUpcomingBillsFCM() {
     if (!notificationPermission) return;
     
@@ -116,7 +169,6 @@ async function checkUpcomingBillsFCM() {
         
         const billDate = new Date(sub.nextBillingDate);
         billDate.setHours(0, 0, 0, 0);
-        
         const daysUntil = Math.ceil((billDate - today) / (1000 * 60 * 60 * 24));
         
         const notifiedKey = `fcm_notified_${sub.id}_${sub.nextBillingDate}`;
@@ -131,20 +183,19 @@ async function checkUpcomingBillsFCM() {
         
         if (shouldNotify) {
             const currencySymbol = getCurrencySymbol(sub.currency);
-            let title = '';
-            let body = '';
+            let title = '', body = '';
             
             if (daysUntil === 0) {
-                title = '💰 Subscription Due Today!';
+                title = 'Subscription Due Today';
                 body = `${sub.name} bills today for ${currencySymbol}${sub.price}`;
             } else if (daysUntil === 1) {
-                title = '⏰ Subscription Due Tomorrow!';
+                title = 'Subscription Due Tomorrow';
                 body = `${sub.name} bills tomorrow for ${currencySymbol}${sub.price}`;
             } else if (daysUntil === 3) {
-                title = '📅 Subscription Bill Reminder';
+                title = 'Subscription Bill Reminder';
                 body = `${sub.name} bills in 3 days for ${currencySymbol}${sub.price}`;
             } else if (daysUntil === 7) {
-                title = '📅 Subscription Bill Reminder';
+                title = 'Subscription Bill Reminder';
                 body = `${sub.name} bills in 1 week for ${currencySymbol}${sub.price}`;
             }
             
@@ -155,33 +206,26 @@ async function checkUpcomingBillsFCM() {
                     tag: sub.id,
                     requireInteraction: true
                 });
-                
                 localStorage.setItem(notifiedKey, 'true');
             }
         }
     }
 }
 
-// ============ SINGLE NOTIFICATION CONTROL IN SETTINGS (NO HEADER BELL) ============
+// ==================== NOTIFICATION CONTROLS ====================
+
 function addNotificationToSettings() {
     console.log("Adding notification section to Settings modal...");
     
-    // Wait a bit for the modal to be ready
     setTimeout(() => {
         const settingsBody = document.querySelector('#settingsModal .modal-body');
         if (!settingsBody) {
-            console.log("Settings modal body not found, retrying...");
             setTimeout(() => addNotificationToSettings(), 500);
             return;
         }
         
-        // Check if already added
-        if (document.getElementById('settingsNotificationSection')) {
-            console.log("Notification section already exists");
-            return;
-        }
+        if (document.getElementById('settingsNotificationSection')) return;
         
-        // Create notification section
         const notificationSection = document.createElement('div');
         notificationSection.id = 'settingsNotificationSection';
         notificationSection.className = 'settings-section';
@@ -201,7 +245,6 @@ function addNotificationToSettings() {
             </div>
         `;
         
-        // Find where to insert (after Data Management section)
         const dataManagementSection = settingsBody.querySelector('.settings-section');
         if (dataManagementSection) {
             dataManagementSection.insertAdjacentElement('afterend', notificationSection);
@@ -209,7 +252,6 @@ function addNotificationToSettings() {
             settingsBody.insertBefore(notificationSection, settingsBody.firstChild);
         }
         
-        // Setup toggle button
         const toggleBtn = document.getElementById('notificationToggleBtn');
         const statusDiv = document.getElementById('notificationStatus');
         
@@ -219,26 +261,26 @@ function addNotificationToSettings() {
                 toggleBtn.style.background = '#10b98120';
                 toggleBtn.style.borderColor = '#10b981';
                 toggleBtn.style.color = '#10b981';
-                statusDiv.innerHTML = '<i class="fa-solid fa-check-circle" style="color: #10b981;"></i> ✅ Notifications are active. You will receive bill reminders.';
+                statusDiv.innerHTML = '<i class="fa-solid fa-check-circle" style="color: #10b981;"></i> Notifications are active. You will receive bill reminders.';
                 statusDiv.style.background = '#10b98110';
             } else if (Notification.permission === 'denied') {
                 toggleBtn.innerHTML = '<i class="fa-solid fa-bell-slash"></i> Blocked';
                 toggleBtn.disabled = true;
-                statusDiv.innerHTML = '<i class="fa-solid fa-exclamation-triangle" style="color: #ef4444;"></i> ❌ Notifications are blocked. Please enable in browser settings.';
+                statusDiv.innerHTML = '<i class="fa-solid fa-exclamation-triangle" style="color: #ef4444;"></i> Notifications are blocked. Please enable in browser settings.';
                 statusDiv.style.background = '#ef444410';
             } else {
                 toggleBtn.innerHTML = '<i class="fa-regular fa-bell"></i> Enable';
                 toggleBtn.style.background = '';
                 toggleBtn.style.borderColor = '';
                 toggleBtn.style.color = '';
-                statusDiv.innerHTML = '<i class="fa-regular fa-circle-info"></i> 🔔 Click "Enable" to allow notifications for bill reminders.';
+                statusDiv.innerHTML = '<i class="fa-regular fa-circle-info"></i> Click "Enable" to allow notifications for bill reminders.';
                 statusDiv.style.background = '';
             }
         }
         
         toggleBtn.onclick = async () => {
             if (Notification.permission === 'granted') {
-                showToast('Notifications are already enabled!', 'success');
+                showToast('Notifications are already enabled', 'success');
                 return;
             }
             
@@ -249,14 +291,14 @@ function addNotificationToSettings() {
             
             if (granted) {
                 updateNotificationUI();
-                showToast('✅ Notifications enabled! You will receive bill reminders.', 'success');
+                showToast('Notifications enabled. You will receive bill reminders.', 'success');
                 checkUpcomingBills();
                 if (typeof initFCM === 'function') {
                     initFCM();
                 }
             } else {
                 updateNotificationUI();
-                showToast('❌ Notification permission denied. Please check browser settings.', 'error');
+                showToast('Notification permission denied. Please check browser settings.', 'error');
             }
             
             toggleBtn.disabled = false;
@@ -267,7 +309,6 @@ function addNotificationToSettings() {
     }, 100);
 }
 
-// Gentle prompt for notifications (appears after adding first subscription)
 let fcmPromptShown = false;
 
 function gentleFCMNotificationPrompt() {
@@ -278,12 +319,12 @@ function gentleFCMNotificationPrompt() {
     fcmPromptShown = true;
     
     setTimeout(() => {
-        const enableNotifications = confirm('🔔 Get push notifications?\n\nReceive reminders when your subscriptions are about to bill.\n\nWorks even when the browser is closed!');
+        const enableNotifications = confirm('Get push notifications?\n\nReceive reminders when your subscriptions are about to bill.\n\nWorks even when the browser is closed.');
         
         if (enableNotifications) {
             initFCM().then(success => {
                 if (success) {
-                    showToast('✅ Notifications enabled!', 'success');
+                    showToast('Notifications enabled', 'success');
                     checkUpcomingBillsFCM();
                 }
             });
@@ -291,82 +332,8 @@ function gentleFCMNotificationPrompt() {
     }, 3000);
 }
 
-// Initialize Firebase
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-
-console.log("App starting...");
-
-// Global variables
-let subscriptions = [];
-let settings = { defaultCurrency: 'USD' };
-let currentFilter = 'all';
-let currentSort = 'name';
-let sortAscending = true;
-let editingId = null;
-let exchangeRates = {};
-
-// Currency symbols
-const symbols = { 
-    USD: '$', KES: 'KSh', EUR: '€', GBP: '£',
-    NGN: '₦', ZAR: 'R', INR: '₹', CAD: 'C$',
-    AUD: 'A$', JPY: '¥'
-};
-
-// Category colors
-const categoryColors = {
-    entertainment: '#e94560', music: '#48dbfb', productivity: '#2ecc71',
-    cloud: '#FF9A86', fitness: '#a29bfe', gaming: '#FFF0BE',
-    education: '#f39c12', news: '#B6F500', shopping: '#e94560',
-    food: '#48dbfb', vpn: '#2ecc71', other: '#a29bfe'
-};
-
-// Helper function to get currency symbol
-function getCurrencySymbol(currency) {
-    if (currency && symbols[currency]) return symbols[currency];
-    return symbols[settings.defaultCurrency] || '$';
-}
-
-// Auto-detect user's currency based on location (silent)
-async function autoDetectCurrency() {
-    const hasManuallySet = localStorage.getItem('currencyManuallySet');
-    if (hasManuallySet) {
-        console.log("Using manually set currency:", settings.defaultCurrency);
-        return;
-    }
-    
-    try {
-        console.log("Auto-detecting location...");
-        const response = await fetch('https://ipapi.co/json/');
-        const data = await response.json();
-        const countryCode = data.country_code;
-        
-        const countryCurrencyMap = {
-            'KE': 'KES', 'US': 'USD', 'GB': 'GBP', 'DE': 'EUR', 'FR': 'EUR',
-            'IT': 'EUR', 'ES': 'EUR', 'NG': 'NGN', 'ZA': 'ZAR', 'IN': 'INR',
-            'CA': 'CAD', 'AU': 'AUD', 'JP': 'JPY'
-        };
-        
-        const detectedCurrency = countryCurrencyMap[countryCode];
-        
-        if (detectedCurrency && detectedCurrency !== settings.defaultCurrency) {
-            console.log(`Auto-detected currency: ${detectedCurrency}`);
-            settings.defaultCurrency = detectedCurrency;
-            localStorage.setItem('subscriptionSettings', JSON.stringify(settings));
-            
-            const defaultCurrencySelect = document.getElementById('defaultCurrency');
-            if (defaultCurrencySelect) defaultCurrencySelect.value = detectedCurrency;
-            
-            localStorage.setItem('currencyAutoDetected', 'true');
-        }
-    } catch (error) {
-        console.log("Auto-detection failed, keeping default USD");
-    }
-}
-
 // ==================== PUSH NOTIFICATIONS ====================
 
-// Request permission for notifications
 async function requestNotificationPermission() {
     if (!('Notification' in window)) {
         console.log("This browser does not support notifications");
@@ -390,7 +357,6 @@ async function requestNotificationPermission() {
     return false;
 }
 
-// Show a notification
 function showNotification(title, body, tag = 'subscription') {
     if (!('Notification' in window)) return;
     if (Notification.permission !== 'granted') return;
@@ -417,7 +383,6 @@ function showNotification(title, body, tag = 'subscription') {
     }
 }
 
-// Check for upcoming bills and send notifications
 function checkUpcomingBills() {
     if (!('Notification' in window)) return;
     if (Notification.permission !== 'granted') return;
@@ -432,7 +397,6 @@ function checkUpcomingBills() {
         
         const billDate = new Date(sub.nextBillingDate);
         billDate.setHours(0, 0, 0, 0);
-        
         const daysUntil = Math.ceil((billDate - today) / (1000 * 60 * 60 * 24));
         
         const lastNotified = localStorage.getItem(`notified_${sub.id}_${sub.nextBillingDate}`);
@@ -446,20 +410,19 @@ function checkUpcomingBills() {
         
         if (shouldNotify) {
             const currencySymbol = getCurrencySymbol(sub.currency);
-            let title = '';
-            let body = '';
+            let title = '', body = '';
             
             if (daysUntil === 0) {
-                title = '💰 Due Today!';
+                title = 'Due Today';
                 body = `${sub.name} bills today for ${currencySymbol}${sub.price}`;
             } else if (daysUntil === 1) {
-                title = '⏰ Due Tomorrow!';
+                title = 'Due Tomorrow';
                 body = `${sub.name} bills tomorrow for ${currencySymbol}${sub.price}`;
             } else if (daysUntil === 3) {
-                title = '📅 Upcoming Bill';
+                title = 'Upcoming Bill';
                 body = `${sub.name} bills in 3 days for ${currencySymbol}${sub.price}`;
             } else if (daysUntil === 7) {
-                title = '📅 Bill Reminder';
+                title = 'Bill Reminder';
                 body = `${sub.name} bills in 1 week for ${currencySymbol}${sub.price}`;
             }
             
@@ -471,7 +434,6 @@ function checkUpcomingBills() {
     });
 }
 
-// Start notification checker (runs every hour)
 let notificationInterval = null;
 
 function startNotificationChecker() {
@@ -485,7 +447,6 @@ function startNotificationChecker() {
     }, 60 * 60 * 1000);
 }
 
-// Auto-request permission gently
 let notificationPromptShown = false;
 
 function gentleNotificationPrompt() {
@@ -496,12 +457,12 @@ function gentleNotificationPrompt() {
     notificationPromptShown = true;
     
     setTimeout(() => {
-        const enableNotifications = confirm('📢 Would you like to receive bill reminders?\n\nGet notified before your subscriptions renew.');
+        const enableNotifications = confirm('Would you like to receive bill reminders?\n\nGet notified before your subscriptions renew.');
         
         if (enableNotifications) {
             requestNotificationPermission().then(granted => {
                 if (granted) {
-                    showToast('Notifications enabled! You will receive bill reminders.', 'success');
+                    showToast('Notifications enabled. You will receive bill reminders.', 'success');
                     checkUpcomingBills();
                 }
             });
@@ -509,7 +470,8 @@ function gentleNotificationPrompt() {
     }, 2000);
 }
 
-// Fetch real exchange rates
+// ==================== EXCHANGE RATES ====================
+
 async function fetchExchangeRates() {
     try {
         const response = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
@@ -522,7 +484,6 @@ async function fetchExchangeRates() {
     }
 }
 
-// Convert currency using real exchange rates
 function convertCurrency(amount, fromCurrency, toCurrency) {
     if (!fromCurrency || fromCurrency === toCurrency) return amount;
     if (!exchangeRates[fromCurrency] || !exchangeRates[toCurrency]) return amount;
@@ -532,7 +493,6 @@ function convertCurrency(amount, fromCurrency, toCurrency) {
     return toTarget;
 }
 
-// Calculate next billing date
 function calculateNextBillingDate(cycle) {
     const date = new Date();
     switch (cycle) {
@@ -545,7 +505,6 @@ function calculateNextBillingDate(cycle) {
     return date.toISOString().split('T')[0];
 }
 
-// Update summary with accurate currency conversion
 async function updateSummary() {
     const active = subscriptions.filter(s => s.status === 'active');
     
@@ -600,7 +559,152 @@ async function updateSummary() {
     if (activeCountEl) activeCountEl.textContent = active.length;
 }
 
-// Render subscriptions
+// ==================== LOAD SUBSCRIPTIONS (WITH USER ID) ====================
+
+async function loadSubscriptions() {
+    console.log("Loading subscriptions for user:", currentUser);
+    if (!currentUser) return;
+    
+    try {
+        const snapshot = await db.collection('subscriptions').where('userId', '==', currentUser).get();
+        subscriptions = [];
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            subscriptions.push({ 
+                id: doc.id, 
+                name: data.name || 'Untitled',
+                category: data.category || 'other',
+                price: data.price || 0,
+                currency: data.currency || 'USD',
+                billingCycle: data.billingCycle || 'monthly',
+                nextBillingDate: data.nextBillingDate || new Date().toISOString().split('T')[0],
+                paymentMethod: data.paymentMethod || 'card',
+                notes: data.notes || '',
+                status: data.status || 'active',
+                color: data.color || categoryColors[data.category] || '#e94560',
+                userId: data.userId
+            });
+        });
+        console.log(`Loaded ${subscriptions.length} subscriptions for user ${currentUser}`);
+        renderSubscriptions();
+        updateSummary();
+    } catch (error) {
+        console.error("Error loading:", error);
+        const saved = localStorage.getItem(`subscriptions_${currentUser}`);
+        if (saved) {
+            subscriptions = JSON.parse(saved);
+            renderSubscriptions();
+            updateSummary();
+        }
+    }
+}
+
+// ==================== SAVE SUBSCRIPTION (WITH USER ID) ====================
+
+async function saveSubscription(e) {
+    e.preventDefault();
+    
+    const sub = {
+        id: editingId || Date.now().toString(),
+        userId: currentUser,
+        name: document.getElementById('serviceName')?.value.trim() || '',
+        category: document.getElementById('category')?.value || 'other',
+        price: parseFloat(document.getElementById('price')?.value) || 0,
+        currency: document.getElementById('currency')?.value || 'USD',
+        billingCycle: document.getElementById('billingCycle')?.value || 'monthly',
+        nextBillingDate: document.getElementById('nextBillingDate')?.value || calculateNextBillingDate('monthly'),
+        paymentMethod: document.getElementById('paymentMethod')?.value || 'card',
+        notes: document.getElementById('notes')?.value.trim() || '',
+        status: document.getElementById('status')?.value || 'active',
+        color: document.querySelector('input[name="color"]:checked')?.value || '#e94560'
+    };
+    
+    if (!sub.name || sub.price === 0) {
+        showToast('Please fill all fields', 'error');
+        return;
+    }
+    
+    try {
+        await db.collection('subscriptions').doc(sub.id).set(sub);
+        
+        if (editingId) {
+            const index = subscriptions.findIndex(s => s.id == editingId);
+            if (index !== -1) subscriptions[index] = sub;
+        } else {
+            subscriptions.push(sub);
+        }
+        
+        renderSubscriptions();
+        updateSummary();
+        localStorage.setItem(`subscriptions_${currentUser}`, JSON.stringify(subscriptions));
+        showToast(editingId ? 'Subscription updated' : 'Subscription added');
+        document.getElementById('subscriptionModal').classList.add('hidden');
+    } catch (error) {
+        console.error("Save error:", error);
+        showToast('Error saving', 'error');
+    }
+
+    if (subscriptions.length === 1 && !fcmPromptShown) {
+        gentleFCMNotificationPrompt();
+    }
+}
+
+async function deleteSubscription() {
+    if (pendingDeleteId) {
+        try {
+            await db.collection('subscriptions').doc(pendingDeleteId).delete();
+            subscriptions = subscriptions.filter(s => s.id != pendingDeleteId);
+            renderSubscriptions();
+            updateSummary();
+            showToast('Subscription deleted');
+        } catch (error) {
+            console.error("Delete error:", error);
+            showToast('Error deleting', 'error');
+        }
+        pendingDeleteId = null;
+    }
+}
+
+// ==================== AUTO DETECT CURRENCY ====================
+
+async function autoDetectCurrency() {
+    const hasManuallySet = localStorage.getItem('currencyManuallySet');
+    if (hasManuallySet) {
+        console.log("Using manually set currency:", settings.defaultCurrency);
+        return;
+    }
+    
+    try {
+        console.log("Auto-detecting location...");
+        const response = await fetch('https://ipapi.co/json/');
+        const data = await response.json();
+        const countryCode = data.country_code;
+        
+        const countryCurrencyMap = {
+            'KE': 'KES', 'US': 'USD', 'GB': 'GBP', 'DE': 'EUR', 'FR': 'EUR',
+            'IT': 'EUR', 'ES': 'EUR', 'NG': 'NGN', 'ZA': 'ZAR', 'IN': 'INR',
+            'CA': 'CAD', 'AU': 'AUD', 'JP': 'JPY'
+        };
+        
+        const detectedCurrency = countryCurrencyMap[countryCode];
+        
+        if (detectedCurrency && detectedCurrency !== settings.defaultCurrency) {
+            console.log(`Auto-detected currency: ${detectedCurrency}`);
+            settings.defaultCurrency = detectedCurrency;
+            localStorage.setItem('subscriptionSettings', JSON.stringify(settings));
+            
+            const defaultCurrencySelect = document.getElementById('defaultCurrency');
+            if (defaultCurrencySelect) defaultCurrencySelect.value = detectedCurrency;
+            
+            localStorage.setItem('currencyAutoDetected', 'true');
+        }
+    } catch (error) {
+        console.log("Auto-detection failed, keeping default USD");
+    }
+}
+
+// ==================== RENDER SUBSCRIPTIONS ====================
+
 function renderSubscriptions() {
     const container = document.getElementById('subscriptionList');
     const emptyState = document.getElementById('emptyState');
@@ -771,87 +875,7 @@ function openAddModal() {
     document.getElementById('subscriptionModal').classList.remove('hidden');
 }
 
-async function loadSubscriptions() {
-    console.log("Loading subscriptions...");
-    try {
-        const snapshot = await db.collection('subscriptions').get();
-        subscriptions = [];
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            subscriptions.push({ 
-                id: doc.id, 
-                name: data.name || 'Untitled',
-                category: data.category || 'other',
-                price: data.price || 0,
-                currency: data.currency || 'USD',
-                billingCycle: data.billingCycle || 'monthly',
-                nextBillingDate: data.nextBillingDate || new Date().toISOString().split('T')[0],
-                paymentMethod: data.paymentMethod || 'card',
-                notes: data.notes || '',
-                status: data.status || 'active',
-                color: data.color || categoryColors[data.category] || '#e94560'
-            });
-        });
-        console.log(`Loaded ${subscriptions.length} subscriptions`);
-        renderSubscriptions();
-        updateSummary();
-    } catch (error) {
-        console.error("Error loading:", error);
-        const saved = localStorage.getItem('subscriptions');
-        if (saved) {
-            subscriptions = JSON.parse(saved);
-            renderSubscriptions();
-            updateSummary();
-        }
-    }
-}
-
-async function saveSubscription(e) {
-    e.preventDefault();
-    
-    const sub = {
-        id: editingId || Date.now().toString(),
-        name: document.getElementById('serviceName')?.value.trim() || '',
-        category: document.getElementById('category')?.value || 'other',
-        price: parseFloat(document.getElementById('price')?.value) || 0,
-        currency: document.getElementById('currency')?.value || 'USD',
-        billingCycle: document.getElementById('billingCycle')?.value || 'monthly',
-        nextBillingDate: document.getElementById('nextBillingDate')?.value || calculateNextBillingDate('monthly'),
-        paymentMethod: document.getElementById('paymentMethod')?.value || 'card',
-        notes: document.getElementById('notes')?.value.trim() || '',
-        status: document.getElementById('status')?.value || 'active',
-        color: document.querySelector('input[name="color"]:checked')?.value || '#e94560'
-    };
-    
-    if (!sub.name || sub.price === 0) {
-        showToast('Please fill all fields', 'error');
-        return;
-    }
-    
-    try {
-        await db.collection('subscriptions').doc(sub.id).set(sub);
-        
-        if (editingId) {
-            const index = subscriptions.findIndex(s => s.id == editingId);
-            if (index !== -1) subscriptions[index] = sub;
-        } else {
-            subscriptions.push(sub);
-        }
-        
-        renderSubscriptions();
-        updateSummary();
-        localStorage.setItem('subscriptions', JSON.stringify(subscriptions));
-        showToast(editingId ? 'Subscription updated!' : 'Subscription added!');
-        document.getElementById('subscriptionModal').classList.add('hidden');
-    } catch (error) {
-        console.error("Save error:", error);
-        showToast('Error saving', 'error');
-    }
-
-    if (subscriptions.length === 1 && !fcmPromptShown) {
-        gentleFCMNotificationPrompt();
-    }
-}
+// ==================== DELETE FUNCTIONS ====================
 
 let pendingDeleteId = null;
 
@@ -862,21 +886,7 @@ function confirmDelete(id) {
     document.getElementById('confirmModal').classList.remove('hidden');
 }
 
-async function deleteSubscription() {
-    if (pendingDeleteId) {
-        try {
-            await db.collection('subscriptions').doc(pendingDeleteId).delete();
-            subscriptions = subscriptions.filter(s => s.id != pendingDeleteId);
-            renderSubscriptions();
-            updateSummary();
-            showToast('Subscription deleted');
-        } catch (error) {
-            console.error("Delete error:", error);
-            showToast('Error deleting', 'error');
-        }
-        pendingDeleteId = null;
-    }
-}
+// ==================== HELPER FUNCTIONS ====================
 
 function showToast(msg, type = 'success') {
     const toast = document.getElementById('toast');
@@ -919,7 +929,8 @@ async function importData(file) {
             if (data.subscriptions && Array.isArray(data.subscriptions)) {
                 for (const sub of data.subscriptions) {
                     const id = sub.id || Date.now().toString();
-                    await db.collection('subscriptions').doc(id).set({...sub, id: id});
+                    sub.userId = currentUser;
+                    await db.collection('subscriptions').doc(id).set(sub);
                 }
                 await loadSubscriptions();
                 showToast('Data imported successfully');
@@ -938,23 +949,23 @@ function testNotificationSystem() {
     console.log("=== TESTING NOTIFICATIONS ===");
     
     if (!('Notification' in window)) {
-        showToast('❌ Your browser does not support notifications', 'error');
+        showToast('Your browser does not support notifications', 'error');
         return;
     }
     
     if (Notification.permission !== 'granted') {
-        showToast('⚠️ Please enable notifications first (Settings → Notifications)', 'error');
+        showToast('Please enable notifications first (Settings → Notifications)', 'error');
         return;
     }
     
-    new Notification('🔔 Test Notification', {
-        body: 'If you see this, notifications are working!',
+    new Notification('Test Notification', {
+        body: 'If you see this, notifications are working',
         icon: 'https://cdn-icons-png.flaticon.com/512/1827/1827333.png',
         requireInteraction: true
     });
     
     if (subscriptions.length === 0) {
-        showToast('📝 Add a subscription first, then test again', 'error');
+        showToast('Add a subscription first, then test again', 'error');
         return;
     }
     
@@ -962,7 +973,7 @@ function testNotificationSystem() {
     const currencySymbol = getCurrencySymbol(testSub.currency);
     
     setTimeout(() => {
-        new Notification('📅 [TEST] 7-Day Reminder', {
+        new Notification('[TEST] 7-Day Reminder', {
             body: `[TEST] ${testSub.name} would bill in 7 days for ${currencySymbol}${testSub.price}`,
             icon: 'https://cdn-icons-png.flaticon.com/512/1827/1827333.png',
             tag: 'test_notification',
@@ -971,7 +982,7 @@ function testNotificationSystem() {
     }, 1000);
     
     setTimeout(() => {
-        new Notification('📅 [TEST] 3-Day Reminder', {
+        new Notification('[TEST] 3-Day Reminder', {
             body: `[TEST] ${testSub.name} would bill in 3 days for ${currencySymbol}${testSub.price}`,
             icon: 'https://cdn-icons-png.flaticon.com/512/1827/1827333.png',
             tag: 'test_notification',
@@ -980,7 +991,7 @@ function testNotificationSystem() {
     }, 2000);
     
     setTimeout(() => {
-        new Notification('⏰ [TEST] Tomorrow Reminder', {
+        new Notification('[TEST] Tomorrow Reminder', {
             body: `[TEST] ${testSub.name} would bill tomorrow for ${currencySymbol}${testSub.price}`,
             icon: 'https://cdn-icons-png.flaticon.com/512/1827/1827333.png',
             tag: 'test_notification',
@@ -989,7 +1000,7 @@ function testNotificationSystem() {
     }, 3000);
     
     setTimeout(() => {
-        new Notification('💰 [TEST] Due Today', {
+        new Notification('[TEST] Due Today', {
             body: `[TEST] ${testSub.name} would bill today for ${currencySymbol}${testSub.price}`,
             icon: 'https://cdn-icons-png.flaticon.com/512/1827/1827333.png',
             tag: 'test_notification',
@@ -997,10 +1008,9 @@ function testNotificationSystem() {
         });
     }, 4000);
     
-    showToast('🔔 Test notifications sent! Check your screen.', 'success');
+    showToast('Test notifications sent. Check your screen.', 'success');
 }
 
-// Keyboard shortcut: Press T 3 times to test
 let testKeyCount = 0;
 let testKeyTimeout;
 
@@ -1020,7 +1030,6 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// TEST: Set a subscription to due tomorrow (press D 3 times)
 async function setTestDueDate() {
     if (subscriptions.length === 0) {
         showToast('Add a subscription first', 'error');
@@ -1044,7 +1053,7 @@ async function setTestDueDate() {
         renderSubscriptions();
         updateSummary();
         
-        showToast(`✅ ${testSub.name} due date set to TOMORROW for testing!`, 'success');
+        showToast(`${testSub.name} due date set to TOMORROW for testing`, 'success');
         
         setTimeout(() => {
             checkUpcomingBillsFCM();
@@ -1075,7 +1084,8 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// Initialize App
+// ==================== INITIALIZE APP ====================
+
 document.addEventListener('DOMContentLoaded', async function() {
     console.log("DOM ready, initializing app...");
     
@@ -1115,8 +1125,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     document.getElementById('confirmOkBtn').onclick = async () => {
         if (pendingDeleteId === 'all') {
-            for (const sub of subscriptions) {
-                await db.collection('subscriptions').doc(sub.id).delete();
+            const snapshot = await db.collection('subscriptions').where('userId', '==', currentUser).get();
+            for (const doc of snapshot.docs) {
+                await db.collection('subscriptions').doc(doc.id).delete();
             }
             subscriptions = [];
             renderSubscriptions();
@@ -1156,7 +1167,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     }, 60 * 60 * 1000);
     
-    // Add notification toggle to Settings modal (NO header bell)
+    // Add notification toggle to Settings modal
     addNotificationToSettings();
     
     // Start regular notification checker
@@ -1165,7 +1176,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Initialize data
     await fetchExchangeRates();
     await autoDetectCurrency();
-    await loadSubscriptions();
+    await initAuth(); // This now handles loading subscriptions
     
     const savedSettings = localStorage.getItem('subscriptionSettings');
     if (savedSettings) {
