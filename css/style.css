@@ -30,6 +30,19 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
+/* Notification Button */
+#notificationBtn {
+    transition: all 0.2s;
+}
+
+#notificationBtn i {
+    transition: transform 0.2s;
+}
+
+#notificationBtn:hover i {
+    transform: scale(1.1);
+}
+
 .app {
     max-width: 600px;
     margin: 0 auto;
@@ -456,6 +469,21 @@ body {
 .app-footer p {
     margin-bottom: 6px;
 }
+
+
+
+footer p {
+    margin: 8px 0;
+}
+
+footer a {
+    color: white;
+    /* Darker slate for contrast */
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.2s ease;
+}
+
 
 .app-footer a {
     color: var(--accent);
