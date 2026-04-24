@@ -1,170 +1,151 @@
 # SubTracker - Never Miss a Subscription Payment Again
 
-A beautiful, real-time subscription tracker that works across all your devices. Get reminders before you get billed, track your spending, and never pay late fees again.
+![Deployment](https://img.shields.io/badge/deployed-Vercel-000000?style=for-the-badge&logo=vercel)
+![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)
+![Frontend](https://img.shields.io/badge/frontend-HTML%20%7C%20CSS%20%7C%20JS-orange?style=for-the-badge)
+![Backend](https://img.shields.io/badge/backend-Firebase-yellow?style=for-the-badge&logo=firebase)
+
+---
+
+## Overview
+
+A real-time subscription tracker that works across all your devices.  
+It helps you track spending, manage subscriptions, and avoid unexpected charges.
+
+---
 
 ## Why I Built This
 
-Let's be honest — we all have those "oh crap, I forgot to cancel that free trial" moments. Or worse, waking up to a surprise charge for a subscription you completely forgot about.
+We all experience situations where we forget about subscriptions or free trials that turn into paid plans.
 
-I built SubTracker because I was tired of:
-- Logging into five different apps to check my subscriptions
-- Getting surprised by yearly renewals I forgot about
-- Having no clear picture of where my money was going each month
+This project was built to solve:
 
-Now I have one place to see everything. And you can too.
+- Managing subscriptions across multiple platforms  
+- Unexpected renewal charges  
+- Lack of visibility into monthly spending  
+
+SubTracker provides a single place to manage everything.
+
+---
 
 ## What Makes This Different
 
-Most subscription trackers either:
-- Charge you monthly (ironic, right?)
-- Store your data on their servers (privacy nightmare)
-- Feel like they were built in 2010
+Most subscription trackers:
 
-SubTracker is:
-- Completely free (forever)
-- No ads, no tracking, no nonsense
-- Your data, your rules
+- Require monthly payments  
+- Store user data on external servers  
+- Offer outdated or complex interfaces  
 
-## Features That Actually Work
+SubTracker:
 
-**For Regular Users:**
-- Sign up with email, Google, or just browse as guest
-- Add any subscription with price, billing cycle, and custom color
-- Get push notifications before you get billed (Chrome, Firefox, Safari, Edge all work)
-- See your monthly and yearly spending at a glance
-- Search, filter, and sort your subscriptions
-- Export your data anytime (it's yours)
-- Works on your phone, tablet, laptop, or desktop
+- Free to use permanently  
+- No ads or tracking  
+- Full control of your data  
 
-**For Admins (if you run this yourself):**
-- Real-time dashboard showing all user subscriptions
-- Automatic currency conversion based on your location
-- Beautiful charts for revenue, categories, and billing cycles
-- Export everything to CSV
-- Secure admin authentication
+---
 
-## Quick Demo
+## Features
 
-[Add a screenshot or GIF here]
+### For Users
+- Email, Google, or guest authentication  
+- Add subscriptions with price, billing cycle, and custom labels  
+- Push notifications before billing dates  
+- Monthly and yearly spending overview  
+- Search, filter, and sort functionality  
+- Export data anytime  
+- Cross-device compatibility  
 
-## What You'll Need
+### For Admins
+- Real-time dashboard  
+- User subscription analytics  
+- Currency conversion support  
+- CSV export functionality  
+- Secure authentication system  
 
-Before you start, you'll need:
-- A Firebase account (free tier is plenty)
-- Basic knowledge of HTML, CSS, and JavaScript (just to deploy)
-- A cup of coffee (optional but recommended)
+---
+
+## Demo
+
+Add a screenshot or GIF here
+
+---
+
+## Requirements
+
+- Firebase account (free tier is sufficient)  
+- Basic knowledge of HTML, CSS, and JavaScript  
+- Web hosting platform (e.g., Vercel, Netlify, Firebase Hosting)  
+
+---
 
 ## Getting Started
 
-### 1. Clone the Repository
+### Clone the Repository
 
 ```bash
 git clone https://github.com/David-Kimath1/subscription-tracker.git
 cd subscription-tracker
 ```
-
 ## How It Works
-### For Users:
-
-1. Sign in or continue as guest
-
-2. Add your subscriptions (name, price, billing cycle, next billing date)
-
-3. The app calculates your monthly and yearly spending
-
-4. You get notifications 7 days, 3 days, 1 day, and on the due date
-
-5. Edit or delete anytime
-
-For Admins:
-
-
-## Tech Stack
-### Frontend: HTML5, CSS3, Vanilla JavaScript
-
-### Backend: Firebase (Authentication, Firestore, Cloud Messaging)
-
-### Charts: Chart.js
-
-### Icons: Font Awesome
-
-### Fonts: Google Fonts (Inter)
-
+User Flow
+Sign in or continue as guest
+Add subscription details
+View automatic spending calculations
+Receive reminders before billing:
+7 days before
+3 days before
+1 day before
+On due date
+Edit or remove subscriptions anytime
+Tech Stack
+Frontend: HTML5, CSS3, JavaScript
+Backend: Firebase (Authentication, Firestore, Cloud Messaging)
+Charts: Chart.js
+Icons: Font Awesome
+Fonts: Google Fonts (Inter)
 What Works
-✔ Desktop browsers (Chrome, Firefox, Safari, Edge)
+Desktop browsers (Chrome, Firefox, Safari, Edge)
+Mobile browsers (iOS and Android)
+Push notifications
+Real-time data sync
+Email/password authentication
+Google Sign-In
+Guest mode
+Currency detection
+Data export and import
+Admin dashboard
+Coming Soon
+Monthly spending charts
+Budget categories
+Multi-currency support per subscription
+Email reminder system
+Troubleshooting
+Notifications not working
+Ensure HTTPS is enabled or use localhost
+Enable notifications in browser settings
+Chrome requires user interaction before enabling notifications
+iOS notification issues
+Add the app to the Home Screen
+Enable notifications from app settings
+Login issues
+Enable Email/Password authentication in Firebase
+Verify Firebase configuration keys
+Contributing
+Report bugs via issues
+Submit improvements via pull requests
+License
 
-✔ Mobile browsers (iOS Safari, Android Chrome)
+MIT License
 
-✔ Push notifications on all platforms
+Developer
 
-✔ Real-time sync across devices
+Built by David Kimathi
 
-✔ Email/password authentication
+Live App: https://subscripti0n-tracker.vercel.app/
+GitHub Repo: https://github.com/David-Kimath1/subscription-tracker
+Instagram: https://www.instagram.com/da.veeee_/
+GitHub Profile: https://github.com/David-Kimath1
+Final Words
 
-✔ Google Sign-In
-
-✔ Guest mode
-
-✔ Currency conversion (auto-detects your location)
-
-✔ Export/import your data
-
-✔ Admin dashboard with analytics
-
-## What's Coming 
-### Monthly spending charts
-
-### Category budgets
-
-### Multiple currency support per subscription
-
-### Email reminders (in addition to push notifications)
-
-## Troubleshooting
-### Notifications not working on Android?
-
-### Make sure you're using HTTPS (or localhost for testing)
-
-### Chrome on Android requires user interaction to enable notifications
-
-### Go to Settings in the app and click "Enable Notifications"
-
-## Notifications not working on iOS?
-
-### iOS requires the app to be added to Home Screen
-
-### Tap Share → Add to Home Screen
-
-### Then enable notifications in Settings
-
-## Can't sign in?
-
-### Make sure you enabled Email/Password in Firebase Console
-
-### Check that your Firebase config is correct
-
-
-## Contributing
-### Found a bug? Open an issue 
-### Have an idea? Submit a pull request.
-
-# License
-### MIT 
-
-# About the Developer
-## Built by David Kimathi because spreadsheets are boring and subscription tracking apps shouldn't cost money.
-
-## Subtracker: https://subscripti0n-tracker.vercel.app/
-
-## Subtracker Github: https://github.com/David-Kimath1/subscription-tracker
-
-## Instagram: https://www.instagram.com/da.veeee_/
-
-## GitHub: https://github.com/David-Kimath1
-
-## Final Words
-### This project started as an idea and turned into something real.
-### It’s not perfect—but it works, it grows, and it reflects the journey behind it.
-
-# Made with coffee and late nights.
-# Love David Kimathi.
+This project started as an idea and became a working product.
+It is not perfect, but it is functional, evolving, and represents continuous learning and improvement.
