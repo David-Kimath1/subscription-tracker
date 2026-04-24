@@ -13,14 +13,13 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const auth = firebase.auth();
 
-// Enable offline persistence
-db.enablePersistence()
-    .catch((err) => {
-        if (err.code == 'failed-precondition') {
-            console.log('Multiple tabs open, persistence can only be enabled in one tab at a time.');
-        } else if (err.code == 'unimplemented') {
-            console.log('Browser doesn\'t support persistence');
-        }
+// IMPORTANT: Set persistence to LOCAL to keep user signed in
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+    .then(() => {
+        console.log("Auth persistence set to LOCAL");
+    })
+    .catch((error) => {
+        console.error("Persistence error:", error);
     });
 
 console.log("App starting...");
@@ -34,6 +33,7 @@ let sortAscending = true;
 let editingId = null;
 let exchangeRates = {};
 let currentUser = null;
+let isLoading = false;
 
 // Currency symbols
 const symbols = { 
@@ -56,54 +56,89 @@ function getCurrencySymbol(currency) {
     return symbols[settings.defaultCurrency] || '$';
 }
 
-// ==================== AUTHENTICATION ====================
+// ==================== AUTHENTICATION WITH PERSISTENCE ====================
 
 async function initAuth() {
-    console.log("Initializing authentication...");
+    console.log("Initializing authentication with persistence...");
     
-    // Clear any stale user data
-    auth.signOut().catch(() => {});
-    
-    try {
-        const userCredential = await auth.signInAnonymously();
-        currentUser = userCredential.user.uid;
-        localStorage.setItem('userId', currentUser);
-        console.log("Authenticated user:", currentUser);
-        
-        // Set up auth state listener
-        auth.onAuthStateChanged(async (user) => {
-            if (user) {
-                if (currentUser !== user.uid) {
-                    currentUser = user.uid;
-                    await loadSubscriptions();
-                }
-            } else {
-                // Re-authenticate if signed out
-                await initAuth();
+    return new Promise(async (resolve) => {
+        try {
+            // Check if already authenticated
+            const currentAuthUser = auth.currentUser;
+            if (currentAuthUser) {
+                currentUser = currentAuthUser.uid;
+                console.log("Already authenticated as:", currentUser);
+                localStorage.setItem('firebaseUserId', currentUser);
+                await loadSubscriptions();
+                resolve(true);
+                return;
             }
-        });
-        
-        await loadSubscriptions();
-    } catch (error) {
-        console.error("Auth error:", error);
-        // Fallback to localStorage only (no cross-user visibility)
-        currentUser = 'local_' + Date.now();
-        localStorage.setItem('userId', currentUser);
-        loadSubscriptionsFromLocal();
-    }
+            
+            // Set up auth state listener FIRST
+            const unsubscribe = auth.onAuthStateChanged(async (user) => {
+                if (user) {
+                    console.log("Auth state changed - User:", user.uid);
+                    if (currentUser !== user.uid) {
+                        currentUser = user.uid;
+                        localStorage.setItem('firebaseUserId', currentUser);
+                        await loadSubscriptions();
+                        resolve(true);
+                    }
+                    unsubscribe();
+                }
+            });
+            
+            // Then sign in anonymously (this will restore existing user)
+            const userCredential = await auth.signInAnonymously();
+            currentUser = userCredential.user.uid;
+            localStorage.setItem('firebaseUserId', currentUser);
+            console.log("Signed in as:", currentUser);
+            
+            // Small delay to ensure auth state is processed
+            setTimeout(async () => {
+                await loadSubscriptions();
+                resolve(true);
+            }, 500);
+            
+        } catch (error) {
+            console.error("Auth error:", error);
+            // Fallback to localStorage only
+            currentUser = localStorage.getItem('localUserId');
+            if (!currentUser) {
+                currentUser = 'local_' + Date.now();
+                localStorage.setItem('localUserId', currentUser);
+            }
+            loadSubscriptionsFromLocal();
+            resolve(false);
+        }
+    });
 }
 
-// ==================== LOAD SUBSCRIPTIONS (USER ISOLATED) ====================
+// ==================== LOAD SUBSCRIPTIONS ====================
 
 async function loadSubscriptions() {
     console.log("Loading subscriptions for user:", currentUser);
+    
     if (!currentUser || currentUser.startsWith('local_')) {
         loadSubscriptionsFromLocal();
         return;
     }
     
+    if (isLoading) {
+        console.log("Already loading, skipping...");
+        return;
+    }
+    
+    isLoading = true;
+    
     try {
-        // Query only current user's subscriptions
+        // Show loading state
+        const container = document.getElementById('subscriptionList');
+        if (container) {
+            container.innerHTML = '<div style="text-align: center; padding: 40px;"><i class="fa-solid fa-spinner fa-pulse"></i> Loading...</div>';
+        }
+        
+        // Query only current user's subscriptions with better error handling
         const snapshot = await db.collection('subscriptions')
             .where('userId', '==', currentUser)
             .get();
@@ -129,14 +164,17 @@ async function loadSubscriptions() {
         
         console.log(`Loaded ${subscriptions.length} subscriptions for user ${currentUser}`);
         
-        // Backup to localStorage for this user only
+        // Backup to localStorage
         localStorage.setItem(`subscriptions_${currentUser}`, JSON.stringify(subscriptions));
         
         renderSubscriptions();
         updateSummary();
     } catch (error) {
         console.error("Error loading from Firestore:", error);
+        // Try to load from localStorage as fallback
         loadSubscriptionsFromLocal();
+    } finally {
+        isLoading = false;
     }
 }
 
@@ -144,8 +182,12 @@ function loadSubscriptionsFromLocal() {
     console.log("Loading from localStorage for user:", currentUser);
     const saved = localStorage.getItem(`subscriptions_${currentUser}`);
     if (saved) {
-        subscriptions = JSON.parse(saved);
-        console.log(`Loaded ${subscriptions.length} subscriptions from localStorage`);
+        try {
+            subscriptions = JSON.parse(saved);
+            console.log(`Loaded ${subscriptions.length} subscriptions from localStorage`);
+        } catch (e) {
+            subscriptions = [];
+        }
     } else {
         subscriptions = [];
         console.log("No saved subscriptions found");
@@ -154,7 +196,7 @@ function loadSubscriptionsFromLocal() {
     updateSummary();
 }
 
-// ==================== SAVE SUBSCRIPTION (WITH USER ID) ====================
+// ==================== SAVE SUBSCRIPTION ====================
 
 async function saveSubscription(e) {
     e.preventDefault();
@@ -164,10 +206,17 @@ async function saveSubscription(e) {
         return;
     }
     
+    // Get form values
+    const nameInput = document.getElementById('serviceName');
+    if (!nameInput || !nameInput.value.trim()) {
+        showToast('Please enter a service name', 'error');
+        return;
+    }
+    
     const sub = {
         id: editingId || Date.now().toString(),
-        userId: currentUser, // Critical: Always set current user ID
-        name: document.getElementById('serviceName')?.value.trim() || '',
+        userId: currentUser,
+        name: nameInput.value.trim(),
         category: document.getElementById('category')?.value || 'other',
         price: parseFloat(document.getElementById('price')?.value) || 0,
         currency: document.getElementById('currency')?.value || 'USD',
@@ -177,17 +226,12 @@ async function saveSubscription(e) {
         notes: document.getElementById('notes')?.value.trim() || '',
         status: document.getElementById('status')?.value || 'active',
         color: document.querySelector('input[name="color"]:checked')?.value || '#e94560',
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        updatedAt: new Date().toISOString()
     };
     
-    if (!sub.name) {
-        showToast('Please enter a service name', 'error');
-        return;
-    }
-    
     try {
+        // Save to Firestore if not in fallback mode
         if (!currentUser.startsWith('local_')) {
-            // Save to Firestore
             await db.collection('subscriptions').doc(sub.id).set(sub);
             console.log("Saved to Firestore successfully!");
         }
@@ -200,14 +244,14 @@ async function saveSubscription(e) {
             subscriptions.push(sub);
         }
         
-        // Save to localStorage (user-specific)
+        // Save to localStorage
         localStorage.setItem(`subscriptions_${currentUser}`, JSON.stringify(subscriptions));
         
         renderSubscriptions();
         updateSummary();
         showToast(editingId ? 'Subscription updated' : 'Subscription added');
         
-        // Close modal
+        // Close modal and reset
         document.getElementById('subscriptionModal').classList.add('hidden');
         document.getElementById('subscriptionForm').reset();
         editingId = null;
@@ -762,51 +806,73 @@ document.addEventListener('DOMContentLoaded', async function() {
     console.log("DOM ready, initializing app...");
     
     // Setup event listeners
-    document.getElementById('addSubscriptionBtn').onclick = () => openAddModal();
-    document.getElementById('settingsBtn').onclick = () => document.getElementById('settingsModal').classList.remove('hidden');
-    document.getElementById('closeSettingsBtn').onclick = () => document.getElementById('settingsModal').classList.add('hidden');
-    document.getElementById('cancelFormBtn').onclick = () => {
+    const addBtn = document.getElementById('addSubscriptionBtn');
+    const settingsBtn = document.getElementById('settingsBtn');
+    const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+    const cancelFormBtn = document.getElementById('cancelFormBtn');
+    const closeModalBtn = document.getElementById('closeModalBtn');
+    const deleteSubscriptionBtn = document.getElementById('deleteSubscriptionBtn');
+    const subscriptionForm = document.getElementById('subscriptionForm');
+    const exportDataBtn = document.getElementById('exportDataBtn');
+    const importDataBtn = document.getElementById('importDataBtn');
+    const importFileInput = document.getElementById('importFileInput');
+    const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+    const clearAllDataBtn = document.getElementById('clearAllDataBtn');
+    const confirmCancelBtn = document.getElementById('confirmCancelBtn');
+    const confirmOkBtn = document.getElementById('confirmOkBtn');
+    const searchInput = document.getElementById('searchInput');
+    const sortSelect = document.getElementById('sortSelect');
+    const sortDirectionBtn = document.getElementById('sortDirectionBtn');
+    const billingCycle = document.getElementById('billingCycle');
+    
+    if (addBtn) addBtn.onclick = () => openAddModal();
+    if (settingsBtn) settingsBtn.onclick = () => document.getElementById('settingsModal').classList.remove('hidden');
+    if (closeSettingsBtn) closeSettingsBtn.onclick = () => document.getElementById('settingsModal').classList.add('hidden');
+    if (cancelFormBtn) cancelFormBtn.onclick = () => {
         document.getElementById('subscriptionModal').classList.add('hidden');
         editingId = null;
     };
-    document.getElementById('closeModalBtn').onclick = () => {
+    if (closeModalBtn) closeModalBtn.onclick = () => {
         document.getElementById('subscriptionModal').classList.add('hidden');
         editingId = null;
     };
-    document.getElementById('deleteSubscriptionBtn').onclick = () => { 
+    if (deleteSubscriptionBtn) deleteSubscriptionBtn.onclick = () => { 
         if (editingId) confirmDelete(editingId); 
     };
-    document.getElementById('subscriptionForm').onsubmit = saveSubscription;
-    document.getElementById('exportDataBtn').onclick = exportData;
-    document.getElementById('importDataBtn').onclick = () => document.getElementById('importFileInput').click();
-    document.getElementById('importFileInput').onchange = (e) => { 
+    if (subscriptionForm) subscriptionForm.onsubmit = saveSubscription;
+    if (exportDataBtn) exportDataBtn.onclick = exportData;
+    if (importDataBtn) importDataBtn.onclick = () => importFileInput?.click();
+    if (importFileInput) importFileInput.onchange = (e) => { 
         if (e.target.files[0]) importData(e.target.files[0]); 
         e.target.value = ''; 
     };
     
-    document.getElementById('saveSettingsBtn').onclick = () => {
-        settings.defaultCurrency = document.getElementById('defaultCurrency').value;
-        localStorage.setItem('subscriptionSettings', JSON.stringify(settings));
-        localStorage.setItem('currencyManuallySet', 'true');
-        document.getElementById('settingsModal').classList.add('hidden');
-        renderSubscriptions();
-        updateSummary();
-        showToast('Settings saved');
+    if (saveSettingsBtn) saveSettingsBtn.onclick = () => {
+        const defaultCurrency = document.getElementById('defaultCurrency');
+        if (defaultCurrency) {
+            settings.defaultCurrency = defaultCurrency.value;
+            localStorage.setItem('subscriptionSettings', JSON.stringify(settings));
+            localStorage.setItem('currencyManuallySet', 'true');
+            document.getElementById('settingsModal').classList.add('hidden');
+            renderSubscriptions();
+            updateSummary();
+            showToast('Settings saved');
+        }
     };
     
-    document.getElementById('clearAllDataBtn').onclick = () => {
+    if (clearAllDataBtn) clearAllDataBtn.onclick = () => {
         pendingDeleteId = 'all';
         document.getElementById('confirmTitle').textContent = 'Clear All Data';
         document.getElementById('confirmMessage').textContent = 'Delete ALL subscriptions? This cannot be undone.';
         document.getElementById('confirmModal').classList.remove('hidden');
     };
     
-    document.getElementById('confirmCancelBtn').onclick = () => {
+    if (confirmCancelBtn) confirmCancelBtn.onclick = () => {
         document.getElementById('confirmModal').classList.add('hidden');
         pendingDeleteId = null;
     };
     
-    document.getElementById('confirmOkBtn').onclick = async () => {
+    if (confirmOkBtn) confirmOkBtn.onclick = async () => {
         if (pendingDeleteId === 'all') {
             await clearAllData();
         } else if (pendingDeleteId) {
@@ -826,12 +892,12 @@ document.addEventListener('DOMContentLoaded', async function() {
     });
     
     // Search and sort
-    document.getElementById('searchInput').oninput = () => renderSubscriptions();
-    document.getElementById('sortSelect').onchange = (e) => { 
+    if (searchInput) searchInput.oninput = () => renderSubscriptions();
+    if (sortSelect) sortSelect.onchange = (e) => { 
         currentSort = e.target.value; 
         renderSubscriptions(); 
     };
-    document.getElementById('sortDirectionBtn').onclick = () => {
+    if (sortDirectionBtn) sortDirectionBtn.onclick = () => {
         sortAscending = !sortAscending;
         const sortIcon = document.getElementById('sortIcon');
         if (sortIcon) sortIcon.className = sortAscending ? 'fa-solid fa-arrow-down' : 'fa-solid fa-arrow-up';
@@ -839,10 +905,12 @@ document.addEventListener('DOMContentLoaded', async function() {
     };
     
     // Auto-calculate next billing date
-    const billingCycleSelect = document.getElementById('billingCycle');
-    if (billingCycleSelect) {
-        billingCycleSelect.onchange = () => {
-            document.getElementById('nextBillingDate').value = calculateNextBillingDate(billingCycleSelect.value);
+    if (billingCycle) {
+        billingCycle.onchange = () => {
+            const nextBillingDate = document.getElementById('nextBillingDate');
+            if (nextBillingDate) {
+                nextBillingDate.value = calculateNextBillingDate(billingCycle.value);
+            }
         };
     }
     
@@ -858,13 +926,13 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (defaultCurrencySelect) defaultCurrencySelect.value = settings.defaultCurrency;
     }
     
-    // Initialize auth and load data
+    // Initialize auth and load data (this now persists across reloads)
     await initAuth();
     
     // Start notification checker
     startNotificationChecker();
     
-    // Add a small delay to ensure everything is loaded
+    // Check for upcoming bills after loading
     setTimeout(() => {
         if (subscriptions.length > 0) {
             checkUpcomingBills();
