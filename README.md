@@ -88,64 +88,70 @@ cd subscription-tracker
 ```
 ## How It Works
 User Flow
-Sign in or continue as guest
-Add subscription details
-View automatic spending calculations
-Receive reminders before billing:
-7 days before
-3 days before
-1 day before
-On due date
-Edit or remove subscriptions anytime
-Tech Stack
-Frontend: HTML5, CSS3, JavaScript
-Backend: Firebase (Authentication, Firestore, Cloud Messaging)
-Charts: Chart.js
-Icons: Font Awesome
-Fonts: Google Fonts (Inter)
-What Works
-Desktop browsers (Chrome, Firefox, Safari, Edge)
-Mobile browsers (iOS and Android)
-Push notifications
-Real-time data sync
-Email/password authentication
-Google Sign-In
-Guest mode
-Currency detection
-Data export and import
-Admin dashboard
-Coming Soon
-Monthly spending charts
-Budget categories
-Multi-currency support per subscription
-Email reminder system
-Troubleshooting
-Notifications not working
-Ensure HTTPS is enabled or use localhost
-Enable notifications in browser settings
-Chrome requires user interaction before enabling notifications
-iOS notification issues
-Add the app to the Home Screen
-Enable notifications from app settings
-Login issues
-Enable Email/Password authentication in Firebase
-Verify Firebase configuration keys
-Contributing
-Report bugs via issues
-Submit improvements via pull requests
-License
+- Sign in or continue as guest
+- Add subscription details
+- View automatic spending calculations
+- Receive reminders before billing:
+- 7 days before
+- 3 days before
+- 1 day before
+- On due date
+- Edit or remove subscriptions anytime
+  
+## Tech Stack
+- Frontend: HTML5, CSS3, JavaScript
+- Backend: Firebase (Authentication, Firestore, Cloud Messaging)
+- Charts: Chart.js
+- Icons: Font Awesome
+- Fonts: Google Fonts (Inter)
+  
+## What Works
+- Desktop browsers (Chrome, Firefox, Safari, Edge)
+- Mobile browsers (iOS and Android)
+- Push notifications
+- Real-time data sync
+- Email/password authentication
+- Google Sign-In
+- Guest mode
+- Currency detection
+- Data export and import
+- Admin dashboard
+  
+## Coming Soon
+- Monthly spending charts
+- Budget categories
+- Multi-currency support per subscription
+- Email reminder system
 
-MIT License
+## Troubleshooting
+### Notifications not working
+- Ensure HTTPS is enabled or use localhost
+- Enable notifications in browser settings
+- Chrome requires user interaction before enabling notifications
+  
+### iOS notification issues
+- Add the app to the Home Screen
+- Enable notifications from app settings
 
-Developer
+### Login issues
+- Enable Email/Password authentication in Firebase
+- Verify Firebase configuration keys
 
-Built by David Kimathi
+## Contributing
+- Report bugs via issues
+- Submit improvements via pull requests
 
-Live App: https://subscripti0n-tracker.vercel.app/
-GitHub Repo: https://github.com/David-Kimath1/subscription-tracker
-Instagram: https://www.instagram.com/da.veeee_/
-GitHub Profile: https://github.com/David-Kimath1
-Final Words
+## License
+### MIT License
 
+## Developer
+### Built by David Kimathi
+
+- Live App: https://subscripti0n-tracker.vercel.app/
+- GitHub Repo: https://github.com/David-Kimath1/subscription-tracker
+- Instagram: https://www.instagram.com/da.veeee_/
+- GitHub Profile: https://github.com/David-Kimath1
+
+## Final Words
 This project started as an idea and became a working product.
 It is not perfect, but it is functional, evolving, and represents continuous learning and improvement.
